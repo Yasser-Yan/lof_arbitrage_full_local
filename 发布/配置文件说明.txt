@@ -1,0 +1,8 @@
+LOF套利监控配置文件说明
+
+1. funds_config.json 是基金配置文件。
+2. 里面保存原始 LOF 基金池和用户手动添加的基金。
+3. 换电脑时，先安装 LOF套利监控安装包.exe。
+4. 然后把旧电脑的 funds_config.json 复制到新电脑安装目录：
+   %LOCALAPPDATA%\Programs\LOF套利监控
+5. 覆盖同名文件后重新打开软件即可。

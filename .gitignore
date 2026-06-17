@@ -1,0 +1,21 @@
+# Dependencies
+node_modules/
+.npm-cache/
+
+# Build outputs and generated bundles
+dist/
+
+# Local runtime caches
+.local*/
+.config-gen-cache/
+*.log
+
+# OS/editor files
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# Keep release documentation and small runtime config in the repository, but do not
+# commit large generated executables. Upload installers as GitHub Release assets.
+发布/*.exe
