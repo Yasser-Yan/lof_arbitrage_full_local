@@ -5,7 +5,7 @@ const os = require("os");
 const { exec, spawnSync } = require("child_process");
 
 const HOST = "127.0.0.1";
-const PORT = 8787;
+const PORT = Number(process.env.LOF_PORT || 8787);
 const APP_DIR = __dirname;
 const RUNNING_FROM_SOURCE = (process.argv[1] || "").toLowerCase().endsWith("server.js");
 const RUNTIME_DIR = RUNNING_FROM_SOURCE ? APP_DIR : path.dirname(process.execPath);
@@ -107,6 +107,7 @@ function configRecord(r) {
     amount: r.amount ?? null,
     nav: r.nav ?? null,
     nav_date: r.nav_date || "",
+    nav_source: r.nav_source || "",
     premium: r.premium ?? null,
     apply_status: r.apply_status || "",
     redeem_status: r.redeem_status || "",
@@ -223,6 +224,7 @@ function baseRecord(code, group, name = "") {
     amount: null,
     nav: null,
     nav_date: "",
+    nav_source: "",
     premium: null,
     apply_status: "",
     redeem_status: "",
@@ -233,17 +235,48 @@ function baseRecord(code, group, name = "") {
 }
 
 function mergeRecord(dst, src) {
+  mergeDatedSnapshot(dst, src, "nav_date", ["nav"], "nav_source");
+  mergeDatedSnapshot(
+    dst,
+    src,
+    "price_date",
+    ["price", "change_pct", "volume", "amount"],
+    "quote_source"
+  );
   const alwaysUpdate = new Set([
-    "price", "price_date", "change_pct", "volume", "amount", "premium", "nav", "nav_date",
+    "premium",
     "apply_status", "redeem_status", "apply_limit", "apply_fee", "redeem_fee", "trade_status_source"
   ]);
+  const snapshotFields = new Set([
+    "nav", "nav_date", "nav_source",
+    "price", "price_date", "change_pct", "volume", "amount", "quote_source"
+  ]);
   for (const [key, value] of Object.entries(src)) {
+    if (snapshotFields.has(key)) continue;
     if (value === null || value === undefined || value === "" || value === "-" || value === "--") continue;
     if (dst[key] === null || dst[key] === undefined || dst[key] === "" || alwaysUpdate.has(key)) {
       dst[key] = value;
     }
   }
   dst.group_name = groupName(dst.group);
+}
+
+function mergeDatedSnapshot(dst, src, dateKey, valueKeys, sourceKey) {
+  const hasSourceValue = valueKeys.some(key =>
+    src[key] !== null && src[key] !== undefined && src[key] !== "" && src[key] !== "-" && src[key] !== "--"
+  );
+  if (!hasSourceValue) return;
+  const sourceDate = String(src[dateKey] || "");
+  const currentDate = String(dst[dateKey] || "");
+  if (currentDate && (!sourceDate || sourceDate < currentDate)) return;
+  for (const key of valueKeys) {
+    const value = src[key];
+    if (value !== null && value !== undefined && value !== "" && value !== "-" && value !== "--") {
+      dst[key] = value;
+    }
+  }
+  if (sourceDate) dst[dateKey] = sourceDate;
+  if (src[sourceKey]) dst[sourceKey] = src[sourceKey];
 }
 
 function calcPremium(r) {
@@ -254,7 +287,8 @@ function calcPremium(r) {
 
 function isListedLofCandidate(r) {
   return /^(16|50)\d{4}$/.test(String(r.code || "")) &&
-    hasLofMarker(r.code, r.name, r.note);
+    hasLofMarker(r.code, r.name, r.note) &&
+    !/后端|后收费/.test(String(r.name || ""));
 }
 
 function canCalculatePremium(r) {
@@ -320,6 +354,7 @@ function parseJisiluRecord(cell, group) {
     amount: safeFloat(pick(cell, ["amount", "money", "turnover"])),
     nav: safeFloat(pick(cell, ["fund_nav", "nav", "estimate_value", "unit_nav", "net_value"])),
     nav_date: String(pick(cell, ["nav_dt", "nav_date", "price_dt", "date"]) || ""),
+    nav_source: "集思录",
     premium: pctValue(pick(cell, ["discount_rt", "premium_rt", "fund_premium_rt"])),
     apply_status: String(pick(cell, ["apply_status", "sg_status", "subscription_status"]) || ""),
     redeem_status: String(pick(cell, ["redeem_status", "sh_status", "redemption_status"]) || ""),
@@ -437,9 +472,9 @@ async function fetchJisiluGroup(group) {
   const t = Date.now();
   const key = group.startsWith("qdii") ? "qdii" : group;
   const urls = {
-    stock: [["https://www.jisilu.cn/data/lof/stock_lof_list/", { "___jsl": "LST___", t }]],
-    index: [["https://www.jisilu.cn/data/lof/index_lof_list/", { "___jsl": "LST___", t }]],
-    qdii: [["https://www.jisilu.cn/data/qdii/qdii_list/", { "___jsl": "LST___", t }]]
+    stock: [["https://www.jisilu.cn/data/lof/stock_lof_list/", { "___jsl": "LST___", page: 1, rp: 2000, t }]],
+    index: [["https://www.jisilu.cn/data/lof/index_lof_list/", { "___jsl": "LST___", page: 1, rp: 2000, t }]],
+    qdii: [["https://www.jisilu.cn/data/qdii/qdii_list/", { "___jsl": "LST___", page: 1, rp: 2000, t }]]
   }[key];
   const errors = [];
   for (const [url, params] of urls) {
@@ -473,6 +508,7 @@ async function fetchEastmoneyNav() {
     const r = baseRecord(code, classifyFallback(p[1], code), p[1]);
     r.nav_date = p[3] || "";
     r.nav = safeFloat(p[4]);
+    r.nav_source = "天天基金批量净值";
     r.apply_status = p[11] || "";
     r.redeem_status = p[12] || "";
     r.apply_fee = p[13] || "";
@@ -556,6 +592,7 @@ async function fetchOneNav(code) {
         name: String(data.name || ""),
         nav: safeFloat(data.dwjz),
         nav_date: String(data.jzrq || ""),
+        nav_source: "天天基金净值",
         source: "天天基金净值"
       });
     }
@@ -579,6 +616,7 @@ async function fetchOneNav(code) {
       nav: safeFloat(last.y),
       // Eastmoney timestamps represent China-market dates at local midnight.
       nav_date: last.x ? new Date(Number(last.x) + 8 * 60 * 60 * 1000).toISOString().slice(0, 10) : "",
+      nav_source: "天天基金正式净值",
       source: "天天基金正式净值"
     });
   } catch (_) {}
@@ -649,14 +687,19 @@ async function enrichNav(records) {
   async function worker() {
     while (cursor < records.length) {
       const rec = records[cursor++];
-      const nav = await fetchOneNav(rec.code);
+      let nav = null;
+      for (let attempt = 0; attempt < 2 && !nav; attempt++) {
+        nav = await fetchOneNav(rec.code);
+        if (!nav && attempt === 0) await sleep(300);
+      }
       if (nav) {
         mergeRecord(rec, nav);
         done++;
       }
+      await sleep(80);
     }
   }
-  await Promise.all(Array.from({ length: 24 }, worker));
+  await Promise.all(Array.from({ length: 6 }, worker));
   return [`天天基金单基金净值补齐 ${done}/${records.length} 条`, done];
 }
 
@@ -710,10 +753,11 @@ async function fullRefresh() {
         mergeRecord(merged[row.code], row);
       }
     }
-    if (!Object.keys(merged).length) {
-      const [rows, msg] = await fetchEastmoneyNav();
-      sources["备用数据"] = { ok: rows.length > 0, message: msg, count: rows.length };
-      for (const row of rows) merged[row.code] = row;
+    const [bulkNavRows, bulkNavMsg] = await fetchEastmoneyNav();
+    sources["天天基金批量净值"] = { ok: bulkNavRows.length > 0, message: bulkNavMsg, count: bulkNavRows.length };
+    for (const row of bulkNavRows) {
+      if (!merged[row.code]) merged[row.code] = row;
+      else mergeRecord(merged[row.code], row);
     }
     const configuredRows = readFundConfig();
     sources["基金配置文件"] = { ok: configuredRows.length > 0, message: `读取 ${configuredRows.length} 只已配置基金`, count: configuredRows.length };
@@ -722,16 +766,20 @@ async function fullRefresh() {
       else mergeRecord(merged[row.code], row);
     }
     if (!Object.keys(merged).length) throw new Error("没有抓到数据，可能是网络或数据源临时限制。");
-    const recordsBeforeQuotes = Object.values(merged);
+    const recordsBeforeQuotes = Object.values(merged).filter(isListedLofCandidate);
     const [navMsg, navCount] = await enrichNav(recordsBeforeQuotes);
-    sources["单位净值"] = { ok: navCount > 0, message: navMsg, count: navCount };
+    sources["逐只正式净值校验"] = {
+      ok: navCount > 0,
+      message: navMsg,
+      count: navCount
+    };
     const [tradeMsg, tradeCount] = await enrichTradeStatus(recordsBeforeQuotes);
     sources["申购赎回状态"] = { ok: tradeCount > 0, message: tradeMsg, count: tradeCount };
 
-    const [quotes, quoteMsg] = await fetchQuotes(Object.keys(merged));
+    const [quotes, quoteMsg] = await fetchQuotes(recordsBeforeQuotes.map(r => r.code));
     sources["场内行情"] = { ok: Object.keys(quotes).length > 0, message: quoteMsg, count: Object.keys(quotes).length };
     for (const [code, quote] of Object.entries(quotes)) if (merged[code]) mergeRecord(merged[code], quote);
-    const records = Object.values(merged);
+    const records = recordsBeforeQuotes;
     splitQdiiRegions(records);
     for (const r of records) {
       calcPremium(r);
@@ -777,7 +825,7 @@ function sendJson(res, obj, status = 200) {
 }
 
 function sendCsv(res) {
-  const cols = ["group_name", "code", "name", "market_name", "price_date", "price", "change_pct", "nav", "nav_date", "premium", "amount", "volume", "apply_status", "redeem_status", "source"];
+  const cols = ["group_name", "code", "name", "market_name", "price_date", "price", "change_pct", "nav", "nav_date", "nav_source", "premium", "amount", "volume", "apply_status", "redeem_status", "source"];
   const esc = v => `"${String(v ?? "").replace(/"/g, '""')}"`;
   const csv = [cols.join(","), ...state.funds.map(r => cols.map(c => esc(r[c])).join(","))].join("\r\n");
   res.writeHead(200, { "Content-Type": "text/csv; charset=utf-8", "Content-Disposition": "attachment; filename=lof_arbitrage.csv" });
@@ -842,6 +890,17 @@ server.on("error", async err => {
 });
 
 (async () => {
+  if (process.argv.includes("--refresh-once")) {
+    const result = await fullRefresh();
+    console.log(JSON.stringify({
+      ok: result.ok,
+      message: state.message,
+      updated: state.updated,
+      fund_count: state.funds.length,
+      sources: state.sources
+    }, null, 2));
+    process.exit(result.ok ? 0 : 1);
+  }
   if (await existingServerIsAlive()) {
     openBrowser();
     process.exit(0);

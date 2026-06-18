@@ -169,6 +169,7 @@ RUNTIME_DIR\funds_config.json
 | `amount` | 成交额，单位万元。 |
 | `nav` | 单位净值。 |
 | `nav_date` | 净值日期。 |
+| `nav_source` | 最终采用的净值来源。净值按日期合并，旧日期不能覆盖新日期。 |
 | `premium` | 溢价率。 |
 | `apply_status` | 申购状态。 |
 | `redeem_status` | 赎回状态。 |
@@ -212,14 +213,14 @@ https://www.jisilu.cn/data/qdii/qdii_list/
 
 ### 净值
 
-单基金净值补齐主要访问：
+全量刷新先读取天天基金 LOF 批量净值列表，并用集思录 LOF/QDII 列表交叉补充。只有批量来源仍缺少净值的基金，才逐只访问：
 
 ```text
 https://fundgz.1234567.com.cn/js/{code}.js
 https://fund.eastmoney.com/pingzhongdata/{code}.js
 ```
 
-`fetchOneNav()` 会保留日期更新的净值。
+`fetchOneNav()` 会保留日期更新的净值。`mergeRecord()` 对净值采用按日期合并，旧配置和旧来源不能覆盖更新日期的净值。
 
 ### 场内行情
 
