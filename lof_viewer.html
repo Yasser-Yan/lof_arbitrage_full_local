@@ -353,7 +353,7 @@
             <th data-sort="volume">成交量</th>
             <th data-sort="apply_status">申购</th>
             <th data-sort="redeem_status">赎回</th>
-            <th data-sort="source">来源</th>
+            <th data-sort="nav_source">净值来源</th>
           </tr>
         </thead>
         <tbody id="tbody"></tbody>
@@ -478,7 +478,7 @@
             <td>${fmt(f.volume, 0)}</td>
             <td>${statusCell(f.apply_status, f.apply_limit)}</td>
             <td>${statusCell(f.redeem_status)}</td>
-            <td class="muted">${f.source || "-"}</td>
+            <td class="muted">${f.nav_source || "-"}</td>
           </tr>`;
         }).join("");
       }
